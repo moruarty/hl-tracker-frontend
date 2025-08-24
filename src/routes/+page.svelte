@@ -19,81 +19,84 @@
   let refreshIntervalId: any = null;
   const refreshDelay = 5000;
 
-  // --- Main function called by the Search button ---
+  // Abort any in-flight fetches when switching tabs / reloading
+  let inFlightController: AbortController | null = null;
+
   async function handleSearch() {
     if (!userAddress) return;
 
     isLoading = true;
     error = null;
-    activeTab = 'positions'; // Default to positions tab on new search
+    activeTab = 'positions'; // default landing tab
 
-    // Reset all data for the new user
     positions = [];
     portfolioData = {};
 
-    await refreshData(false); // Fetch initial data
+    await refreshData(false);
     isLoading = false;
   }
 
-  // --- Smart refresher: knows what to fetch based on tab ---
+  // Only fetch what's needed for the active tab; cancel old requests
   async function refreshData(isRefresh = true) {
     if (!userAddress) return;
 
-    // don't continuously reset the timer mid-cycle unless this call came from user/action
+    // Stop previous interval if this is a manual refresh (tab switch / search)
     if (!isRefresh && refreshIntervalId) {
       clearInterval(refreshIntervalId);
+      refreshIntervalId = null;
     }
+
+    // Cancel any in-flight requests from the previous tab/state
+    if (inFlightController) inFlightController.abort();
+    inFlightController = new AbortController();
+    const { signal } = inFlightController;
+
+    // Snapshot the tab at call time; ignore results if tab changes mid-flight
+    const tabAtStart = activeTab;
 
     try {
-      // Always fetch positions and mark prices
-      const positionsPromise = fetch(`http://127.0.0.1:3000/positions/${userAddress}`);
-      const markPricesPromise = fetch(`http://127.0.0.1:3000/mark-prices`);
-
-      // Conditionally fetch portfolio data only if the portfolio tab is active
-      const promises: Promise<Response>[] = [positionsPromise, markPricesPromise];
-      const willFetchPortfolio = activeTab === 'portfolio';
-      if (willFetchPortfolio) {
-        promises.push(fetch(`http://127.0.0.1:3000/portfolio/${userAddress}`));
+      if (tabAtStart === 'portfolio') {
+        const res = await fetch(`http://127.0.0.1:3000/portfolio/${userAddress}`, { signal });
+        if (!res.ok) throw new Error('Portfolio request failed.');
+        const data = await res.json();
+        if (activeTab !== tabAtStart) return; // tab changed; ignore results
+        portfolioData = data;
+        lastUpdated = Date.now();
+      } else {
+        const [resPos, resMarks] = await Promise.all([
+          fetch(`http://127.0.0.1:3000/positions/${userAddress}`, { signal }),
+          fetch(`http://127.0.0.1:3000/mark-prices`, { signal })
+        ]);
+        if (!resPos.ok || !resMarks.ok) throw new Error('An API request failed.');
+        const [posData, marksData] = await Promise.all([resPos.json(), resMarks.json()]);
+        if (activeTab !== tabAtStart) return; // tab changed; ignore results
+        positions = posData;
+        markPrices = marksData;
       }
 
-      const responses = await Promise.all(promises);
-
-      // Check all responses for errors
-      for (const res of responses) {
-        if (!res.ok) throw new Error('An API request failed.');
-      }
-
-      // Process successful responses
-      positions = await responses[0].json();
-      markPrices = await responses[1].json();
-      if (responses.length === 3) {
-        portfolioData = await responses[2].json();
-        lastUpdated = Date.now(); // heartbeat for the chart (optional but fine)
-        // (Optional immediate recompute; reactive block below will also run)
-        selectedPnlHistory = [
-          ...getHistory('pnlHistory', portfolioData, activeAssetType, activeTimeframe)
-        ];
-        selectedAccountValueHistory = [
-          ...getHistory('accountValueHistory', portfolioData, activeAssetType, activeTimeframe)
-        ];
-      }
-
+      error = null;
     } catch (e: any) {
-      error = e.message;
-      positions = [];
-      portfolioData = {};
+      if (e?.name === 'AbortError') return; // expected on tab switch
+      error = e?.message ?? 'Unknown error';
+      if (tabAtStart === 'portfolio') {
+        portfolioData = {};
+      } else {
+        positions = [];
+        markPrices = {};
+      }
+    } finally {
+      // Clear controller once this cycle finishes
+      inFlightController = null;
     }
 
-    // After any fetch, (re)start the timer if enabled
     startAutoRefresh();
 
-    // Manually touch for reactivity safety (usually not needed, but harmless)
+    // nudge reactivity (harmless)
     positions = positions;
     markPrices = markPrices;
     portfolioData = portfolioData;
   }
 
-  // --- Start / restart the timer ---
   function startAutoRefresh() {
     if (refreshIntervalId) clearInterval(refreshIntervalId);
     if (autoRefreshEnabled && userAddress) {
@@ -101,16 +104,21 @@
     }
   }
 
-  // --- Handler for changing tabs ---
   async function handleTabChange(tab: 'positions' | 'portfolio') {
     activeTab = tab;
-    // If we switch to portfolio and have no data, fetch it now.
-    if (tab === 'portfolio' && Object.keys(portfolioData).length === 0) {
-      isLoading = true;
-      await refreshData(false);
-      isLoading = false;
+
+    // Cancel any in-flight fetch from previous tab and stop its timer now
+    if (inFlightController) inFlightController.abort();
+    if (refreshIntervalId) {
+      clearInterval(refreshIntervalId);
+      refreshIntervalId = null;
     }
-    startAutoRefresh(); // Restart the refresh loop with the new tab context
+
+    isLoading = true;
+    await refreshData(false);
+    isLoading = false;
+
+    startAutoRefresh();
   }
 
   function toggleAutoRefresh() {
@@ -124,9 +132,8 @@
   }
 
   onDestroy(() => {
-    if (refreshIntervalId) {
-      clearInterval(refreshIntervalId);
-    }
+    if (refreshIntervalId) clearInterval(refreshIntervalId);
+    if (inFlightController) inFlightController.abort();
   });
 
   // --- Helpers / derived data ---
@@ -146,9 +153,7 @@
   let selectedPnlHistory: [number, string][] = [];
   let selectedAccountValueHistory: [number, string][] = [];
 
-  // Recompute the series whenever any dependency changes (portfolioData, timeframe, asset type)
   $: {
-    // explicit deps so Svelte tracks them
     portfolioData;
     activeAssetType;
     activeTimeframe;
@@ -175,13 +180,18 @@
   })();
 </script>
 
-<main class="max-w-screen-2xl mx-auto p-8">
-  <div class="max-w-3xl mx-auto">
-    <h1 class="text-4xl font-bold mb-6 text-center">Hyperliquid Performance Tracker</h1>
+<!-- Full-width page; fix search width; unify content width so table & chart match -->
+<main class="w-full px-6 py-8">
+  <!-- Header -->
+  <div class="w-full flex justify-center mb-4">
+    <h1 class="text-4xl font-bold text-center">Hyperliquid Performance Tracker</h1>
+  </div>
 
-    <form class="flex items-center gap-2 mb-4" on:submit|preventDefault={handleSearch}>
+  <!-- Search row (fixed width, consistent on both tabs) -->
+  <div class="w-full flex justify-center">
+    <form class="flex items-center gap-2 w-[560px] max-w-full mb-6" on:submit|preventDefault={handleSearch}>
       <input
-        class="w-full bg-sky-100 border border-slate-700 rounded-md px-4 py-2 text-lg focus:ring-2 focus:ring-sky-500 outline-none text-gray-900"
+        class="flex-1 bg-sky-100 border border-slate-700 rounded-md px-4 py-2 text-lg focus:ring-2 focus:ring-sky-500 outline-none text-gray-900"
         type="text"
         placeholder="Enter EVM address..."
         bind:value={userAddress}
@@ -191,8 +201,11 @@
         type="submit"
       >Search</button>
     </form>
+  </div>
 
-    <div class="flex items-center justify-center gap-2 mb-8 text-slate-400">
+  <!-- Auto-refresh toggle (same fixed width as search) -->
+  <div class="w-full flex justify-center mb-8">
+    <div class="flex items-center justify-center gap-2 text-slate-600 w-[560px] max-w-full">
       <label for="autoRefreshToggle">Auto-Refresh</label>
       <button
         id="autoRefreshToggle"
@@ -211,36 +224,40 @@
     </div>
   </div>
 
-  <div class="flex justify-center mb-8">
-    <button
-      on:click={() => handleTabChange('positions')}
-      class="px-6 py-3 text-lg transition-colors"
-      class:border-b-2={activeTab === 'positions'}
-      class:border-sky-500={activeTab === 'positions'}
-      class:text-black={activeTab === 'positions'}
-      class:text-gray-400={activeTab !== 'positions'}
-    >Positions</button>
-    <button
-      on:click={() => handleTabChange('portfolio')}
-      class="px-6 py-3 text-lg transition-colors"
-      class:border-b-2={activeTab === 'portfolio'}
-      class:border-sky-500={activeTab === 'portfolio'}
-      class:text-black={activeTab === 'portfolio'}
-      class:text-gray-400={activeTab !== 'portfolio'}
-    >Portfolio</button>
+  <!-- Tabs -->
+  <div class="w-full flex justify-center mb-8">
+    <div class="flex justify-center gap-6">
+      <button
+        on:click={() => handleTabChange('positions')}
+        class="px-6 py-3 text-lg transition-colors border-b-2"
+        class:border-sky-500={activeTab === 'positions'}
+        class:border-transparent={activeTab !== 'positions'}
+        class:text-black={activeTab === 'positions'}
+        class:text-gray-400={activeTab !== 'positions'}
+      >Positions</button>
+      <button
+        on:click={() => handleTabChange('portfolio')}
+        class="px-6 py-3 text-lg transition-colors border-b-2"
+        class:border-sky-500={activeTab === 'portfolio'}
+        class:border-transparent={activeTab !== 'portfolio'}
+        class:text-black={activeTab === 'portfolio'}
+        class:text-gray-400={activeTab !== 'portfolio'}
+      >Portfolio</button>
+    </div>
   </div>
 
-  <div class="w-full">
+  <!-- Unified content width for table & chart -->
+  <div class="w-full max-w-[1400px] mx-auto">
     {#if isLoading}
-      <p class="text-lg text-gray-400 text-center">Loading data...</p>
+      <p class="text-lg text-gray-500 text-center">Loading data...</p>
     {:else if error}
       <p class="text-lg text-red-500 text-center">Error: {error}</p>
     {:else if userAddress}
       {#if activeTab === 'positions'}
         {#if positions.length > 0}
-          <div class="mx-auto">
+          <div class="w-full">
             <table class="w-full text-left whitespace-nowrap">
-              <thead class="text-slate-400 uppercase text-sm">
+              <thead class="text-slate-500 uppercase text-sm border-b border-slate-200">
                 <tr>
                   <th class="p-4">Coin</th>
                   <th class="p-4">Size</th>
@@ -259,9 +276,9 @@
                   {@const p = pos.position}
                   {@const isLong = parseFloat(p.szi) >= 0}
                   {@const fundingDisplay = parseFloat(p.cumFunding.sinceOpen) * -1}
-                  <tr class="border-b border-slate-800">
+                  <tr class="border-b border-slate-100">
                     <td class="p-4">
-                      <div class="font-semibold" class:text-green-400={isLong} class:text-red-400={!isLong}>
+                      <div class="font-semibold" class:text-green-600={isLong} class:text-red-600={!isLong}>
                         {p.coin} {p.leverage.value}x
                       </div>
                     </td>
@@ -273,21 +290,11 @@
                     </td>
                     <td class="p-4">${parseFloat(p.liquidationPx).toFixed(2)}</td>
                     <td class="p-4">${parseFloat(p.marginUsed).toFixed(2)} ({p.leverage.type})</td>
-                    <td
-                      class="p-4 font-mono"
-                      class:text-green-400={parseFloat(p.unrealizedPnl) >= 0}
-                      class:text-red-400={parseFloat(p.unrealizedPnl) < 0}
-                    >
+                    <td class="p-4 font-mono" class:text-green-600={parseFloat(p.unrealizedPnl) >= 0} class:text-red-600={parseFloat(p.unrealizedPnl) < 0}>
                       ${parseFloat(p.unrealizedPnl).toFixed(2)}
-                      <span class="text-sm text-slate-400">
-                        ({(parseFloat(p.returnOnEquity) * 100).toFixed(2)}%)
-                      </span>
+                      <span class="text-sm text-slate-500">({(parseFloat(p.returnOnEquity) * 100).toFixed(2)}%)</span>
                     </td>
-                    <td
-                      class="p-4 font-mono"
-                      class:text-green-400={fundingDisplay >= 0}
-                      class:text-red-400={fundingDisplay < 0}
-                    >
+                    <td class="p-4 font-mono" class:text-green-600={fundingDisplay >= 0} class:text-red-600={fundingDisplay < 0}>
                       ${fundingDisplay.toFixed(4)}
                     </td>
                     <td class="p-4 text-slate-500">N/A</td>
@@ -297,45 +304,46 @@
             </table>
           </div>
         {:else}
-          <p class="text-lg text-slate-400 text-center">No open positions found.</p>
+          <p class="text-lg text-slate-500 text-center">No open positions found.</p>
         {/if}
       {/if}
 
       {#if activeTab === 'portfolio'}
         {#key `${userAddress}-${activeAssetType}-${activeTimeframe}-${selectedPnlHistory.length}`}
-          <div class="bg-slate-800 border border-slate-700 rounded-lg p-6">
+          <div class="w-full bg-slate-800 border border-slate-700 rounded-lg p-6">
             <div class="mb-6">
-              <h3 class="text-gray-400 text-lg">Account Value</h3>
-              <p class="text-4xl font-bold">
+              <h3 class="text-gray-300 text-lg">Account Value</h3>
+              <p class="text-4xl font-bold text-white">
                 ${portfolioStats.currentValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
-              <p
-                class="text-lg font-semibold"
-                class:text-green-400={portfolioStats.change >= 0}
-                class:text-red-400={portfolioStats.change < 0}
-              >
+              <p class="text-lg font-semibold" class:text-green-400={portfolioStats.change >= 0} class:text-red-400={portfolioStats.change < 0}>
                 {portfolioStats.change >= 0 ? '+' : ''}${portfolioStats.change.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 ({portfolioStats.percentChange.toFixed(2)}%)
                 <span class="text-gray-400 text-base font-normal"> {activeTimeframe}</span>
               </p>
             </div>
+
             <div class="flex flex-wrap justify-between items-center mb-4 gap-4">
               <div class="flex gap-2 p-1 bg-gray-900/70 rounded-md">
-                <button on:click={() => activeTimeframe = 'day'}   class:bg-sky-600={activeTimeframe === 'day'}   class="px-4 py-1 rounded transition-colors">24H</button>
-                <button on:click={() => activeTimeframe = 'week'}  class:bg-sky-600={activeTimeframe === 'week'}  class="px-4 py-1 rounded transition-colors">1W</button>
-                <button on:click={() => activeTimeframe = 'month'} class:bg-sky-600={activeTimeframe === 'month'} class="px-4 py-1 rounded transition-colors">1M</button>
-                <button on:click={() => activeTimeframe = 'allTime'} class:bg-sky-600={activeTimeframe === 'allTime'} class="px-4 py-1 rounded transition-colors">All</button>
+                <button on:click={() => activeTimeframe = 'day'}    class:bg-sky-600={activeTimeframe === 'day'}    class="px-4 py-1 rounded transition-colors text-white">24H</button>
+                <button on:click={() => activeTimeframe = 'week'}   class:bg-sky-600={activeTimeframe === 'week'}   class="px-4 py-1 rounded transition-colors text-white">1W</button>
+                <button on:click={() => activeTimeframe = 'month'}  class:bg-sky-600={activeTimeframe === 'month'}  class="px-4 py-1 rounded transition-colors text-white">1M</button>
+                <button on:click={() => activeTimeframe = 'allTime'} class:bg-sky-600={activeTimeframe === 'allTime'} class="px-4 py-1 rounded transition-colors text-white">All</button>
               </div>
               <div class="flex gap-2 p-1 bg-gray-900/70 rounded-md">
-                <button on:click={() => activeAssetType = 'combined'} class:bg-sky-600={activeAssetType === 'combined'} class="px-4 py-1 rounded transition-colors">Combined</button>
-                <button on:click={() => activeAssetType = 'perp'}     class:bg-sky-600={activeAssetType === 'perp'}     class="px-4 py-1 rounded transition-colors">Perps Only</button>
+                <button on:click={() => activeAssetType = 'combined'} class:bg-sky-600={activeAssetType === 'combined'} class="px-4 py-1 rounded transition-colors text-white">Combined</button>
+                <button on:click={() => activeAssetType = 'perp'}     class:bg-sky-600={activeAssetType === 'perp'}     class="px-4 py-1 rounded transition-colors text-white">Perps Only</button>
               </div>
             </div>
-            <PnlChart
-              pnlHistory={selectedPnlHistory}
-              timeframe={activeTimeframe}
-              lastUpdated={lastUpdated}
-            />
+
+            <!-- Chart fills container (which matches table width) -->
+            <div class="w-full">
+              <PnlChart
+                pnlHistory={selectedPnlHistory}
+                timeframe={activeTimeframe}
+                lastUpdated={lastUpdated}
+              />
+            </div>
           </div>
         {/key}
       {/if}

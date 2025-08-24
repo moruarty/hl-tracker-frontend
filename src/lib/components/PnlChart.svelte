@@ -6,7 +6,7 @@
 
   export let pnlHistory: [number, string][] = [];
   export let timeframe: 'day' | 'week' | 'month' | 'allTime';
-  export let lastUpdated = 0;                 // <-- NEW
+  export let lastUpdated = 0;
 
   let canvas: HTMLCanvasElement;
   let chart: Chart | null = null;
@@ -37,7 +37,7 @@
       },
       options: {
         responsive: true,
-        maintainAspectRatio: false,
+        maintainAspectRatio: false, // allow it to fill the container width
         scales: {
           x: {
             type: 'time',
@@ -77,8 +77,7 @@
     chart.update('none');
   }
 
-  // Re-apply whenever inputs change OR the parent heartbeat ticks
-  $: pnlHistory, timeframe, lastUpdated, applyData();   // <-- include lastUpdated
+  $: pnlHistory, timeframe, lastUpdated, applyData();
 
   onDestroy(() => {
     chart?.destroy();
@@ -86,6 +85,7 @@
   });
 </script>
 
-<div class="h-96">
+<!-- make the plotting area wider/taller by letting it fill parent width -->
+<div class="w-full h-[28rem] md:h-[34rem]">
   <canvas bind:this={canvas}></canvas>
 </div>
