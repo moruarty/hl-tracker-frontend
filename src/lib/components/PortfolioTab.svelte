@@ -34,39 +34,42 @@
 		];
 	}
 
+	// 🔁 NEW: base stats use PNL for change, AV for base/current
 	$: portfolioStats = (() => {
-		if (!selectedAccountValueHistory || selectedAccountValueHistory.length < 2) {
-			return { currentValue: 0, change: 0, percentChange: 0 };
+		if (!selectedAccountValueHistory?.length || !selectedPnlHistory?.length) {
+			return { currentValue: 0, pnl: 0, percentChange: 0 };
 		}
-		const startValue = parseFloat(selectedAccountValueHistory[0][1]);
+		const startAccount = parseFloat(selectedAccountValueHistory[0][1] ?? '0');
 		const currentValue = parseFloat(
-			selectedAccountValueHistory[selectedAccountValueHistory.length - 1][1]
+			selectedAccountValueHistory[selectedAccountValueHistory.length - 1][1] ?? '0'
 		);
-		const change = currentValue - startValue;
-		const percentChange = startValue !== 0 ? (change / startValue) * 100 : 0;
-		return { currentValue, change, percentChange };
+		const pnl = parseFloat(selectedPnlHistory[selectedPnlHistory.length - 1][1] ?? '0');
+
+		const percentChange = startAccount !== 0 ? (pnl / startAccount) * 100 : 0;
+		return { currentValue, pnl, percentChange };
 	})();
+
+	const fmtUSD = (n: number) =>
+		n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 </script>
 
 {#key `${lastUpdated}-${activeAssetType}-${activeTimeframe}-${selectedPnlHistory.length}`}
 	<div class="w-full rounded-lg border border-slate-700 bg-slate-800 p-6">
 		<div class="mb-6">
 			<h3 class="text-lg text-gray-300">Account Value</h3>
+
+			<!-- Big number stays account value -->
 			<p class="text-4xl font-bold text-white">
-				${portfolioStats.currentValue.toLocaleString(undefined, {
-					minimumFractionDigits: 2,
-					maximumFractionDigits: 2
-				})}
+				${fmtUSD(portfolioStats.currentValue)}
 			</p>
+
+			<!-- 🔁 This line now shows PNL (not account value delta) -->
 			<p
 				class="text-lg font-semibold"
-				class:text-green-400={portfolioStats.change >= 0}
-				class:text-red-400={portfolioStats.change < 0}
+				class:text-green-400={portfolioStats.pnl >= 0}
+				class:text-red-400={portfolioStats.pnl < 0}
 			>
-				{portfolioStats.change >= 0 ? '+' : ''}${portfolioStats.change.toLocaleString(undefined, {
-					minimumFractionDigits: 2,
-					maximumFractionDigits: 2
-				})}
+				{portfolioStats.pnl >= 0 ? '+' : ''}${fmtUSD(portfolioStats.pnl)}
 				({portfolioStats.percentChange.toFixed(2)}%)
 				<span class="text-base font-normal text-gray-400"> {activeTimeframe}</span>
 			</p>
@@ -114,7 +117,3 @@
 		</div>
 	</div>
 {/key}
-
-<style>
-	/* no additional styles */
-</style>

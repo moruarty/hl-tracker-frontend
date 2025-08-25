@@ -73,12 +73,20 @@
 		chart.data.labels = labels;
 		chart.data.datasets[0].data = data;
 
+		const last = data[data.length - 1] ?? 0;
+		const positive = last >= 0;
+		chart.data.datasets[0].borderColor = positive ? '#16a34a' : '#dc2626';
+		chart.data.datasets[0].backgroundColor = positive
+			? 'rgba(22, 163, 74, 0.1)'
+			: 'rgba(220, 38, 38, 0.1)';
+
 		const x = chart.options.scales?.x as TimeScaleOptions | undefined;
 		if (x?.time) x.time.unit = unitFor(timeframe);
 
 		chart.update('none');
 	}
 
+	// eslint-disable-next-line @typescript-eslint/no-unused-expressions
 	$: (pnlHistory, timeframe, lastUpdated, applyData());
 
 	onDestroy(() => {
