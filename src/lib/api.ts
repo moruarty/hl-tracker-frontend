@@ -15,3 +15,12 @@ export async function fetchPositions(userAddress: string) {
   const markPrices = await markPricesResponse.json();
   return { positions, markPrices };
 }
+
+export async function fetchPnl(userAddress: string) {
+  const response = await fetch(`http://127.0.0.1:3000/pnl/${userAddress}`);
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error || 'PnL API failed');
+  }
+  return await response.json();
+}
