@@ -2,16 +2,19 @@
 	import { onDestroy } from 'svelte';
 	import PositionsTab from '$lib/components/PositionsTab.svelte';
 	import PortfolioTab from '$lib/components/PortfolioTab.svelte';
+  import AnalyticsTab from '$lib/components/AnalyticsTab.svelte';
+  import type { CalendarStats } from '$lib/types/analytics';
 
 	// State for UI & Data
 	let positions: any[] = [];
 	let markPrices: Record<string, string> = {};
 	let portfolioData: any = {};
+  let calendarData: CalendarStats | null = null;
 	let lastUpdated = 0;
 	let isLoading = false;
 	let error: string | null = null;
 	let userAddress = '';
-	let activeTab: 'positions' | 'portfolio' = 'positions';
+	let activeTab: 'positions' | 'portfolio' | 'analytics' = 'positions';
 
 	let autoRefreshEnabled = true;
 	let refreshIntervalId: any = null;
@@ -29,6 +32,7 @@
 
 		positions = [];
 		portfolioData = {};
+    calendarData = null;
 
 		await refreshData(false);
 		isLoading = false;
@@ -60,6 +64,13 @@
 				if (activeTab !== tabAtStart) return; // tab changed; ignore results
 				portfolioData = data;
 				lastUpdated = Date.now();
+      } else if (tabAtStart === 'analytics') {
+        const res = await fetch(`http://127.0.0.1:3000/calendar/${userAddress}`, { signal });
+       if (!res.ok) throw new Error('Calendar request failed.');
+       const data = await res.json();
+       if (activeTab !== tabAtStart) return;
+       calendarData = data;
+       lastUpdated = Date.now();
 			} else {
 				const [resPos, resMarks] = await Promise.all([
 					fetch(`http://127.0.0.1:3000/positions/${userAddress}`, { signal }),
@@ -78,6 +89,8 @@
 			error = e?.message ?? 'Unknown error';
 			if (tabAtStart === 'portfolio') {
 				portfolioData = {};
+      } else if (tabAtStart === 'analytics') {
+        calendarData = null;
 			} else {
 				positions = [];
 				markPrices = {};
@@ -93,6 +106,7 @@
 		positions = positions;
 		markPrices = markPrices;
 		portfolioData = portfolioData;
+    calendarData = calendarData;
 	}
 
 	function startAutoRefresh() {
@@ -102,7 +116,7 @@
 		}
 	}
 
-	async function handleTabChange(tab: 'positions' | 'portfolio') {
+	async function handleTabChange(tab: 'positions' | 'portfolio' | 'analytics') {
 		activeTab = tab;
 
 		// Cancel any in-flight fetch from previous tab and stop its timer now
@@ -201,6 +215,13 @@
 				class:text-black={activeTab === 'portfolio'}
 				class:text-gray-400={activeTab !== 'portfolio'}>Portfolio</button
 			>
+      <button
+        on:click={() => handleTabChange('analytics')}
+        class="border-b-2 px-6 py-3 text-lg transition-colors"
+        class:border-sky-500={activeTab === 'analytics'}
+        class:border-transparent={activeTab !== 'analytics'}
+        class:text-black={activeTab === 'analytics'}
+        class:text-gray-400={activeTab !== 'analytics'}>Analytics</button>
 		</div>
 	</div>
 
@@ -218,6 +239,10 @@
 			{#if activeTab === 'portfolio'}
 				<PortfolioTab {portfolioData} {lastUpdated} />
 			{/if}
+
+      {#if activeTab === 'analytics'}
+        <AnalyticsTab calendarData={calendarData} />
+      {/if}
 		{/if}
 	</div>
 </main>
