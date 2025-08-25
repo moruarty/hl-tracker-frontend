@@ -97,26 +97,38 @@
     <div class="mt-1 text-2xl font-semibold text-emerald-400">{winShortPct.toFixed(1)}%</div>
   </div>
 
-  <div class="rounded-xl border border-slate-700 bg-slate-800 p-4 md:col-span-2 lg:col-span-3">
+  <div class="rounded-xl border border-slate-700 bg-slate-800 p-4">
     <div class="text-slate-400 text-sm">Daily PnL summary</div>
     <div class="mt-1 text-lg text-white">
       {profitableDays}/{totalDays} profitable days
       <span class="text-slate-400">({greenPct.toFixed(1)}%)</span>
     </div>
   </div>
+    <div class="rounded-xl border border-slate-700 bg-slate-800 p-4">
+      <div class="text-slate-400 text-sm">Avg hold (Long)</div>
+      <div class="mt-1 text-lg font-semibold text-emerald-400">
+        {fmtDuration(calendarData?.avg_hold_time_long ?? 0)}
+      </div>
+    </div>
+    <div class="rounded-xl border border-slate-700 bg-slate-800 p-4">
+      <div class="text-slate-400 text-sm">Avg hold (Short)</div>
+      <div class="mt-1 text-lg font-semibold text-rose-400">
+          {fmtDuration(calendarData?.avg_hold_time_short ?? 0)}
+      </div>
+    </div>
 </div>
 
 <!-- Controls -->
 <div class="mt-6 mb-2 flex flex-wrap items-center gap-3">
-  <label class="text-sm text-slate-400">Month</label>
-  <select bind:value={selMonth} class="rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-white">
+  <label for="month-select" class="text-sm text-slate-400">Month</label>
+  <select id="month-select" bind:value={selMonth} class="rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-white">
     {#each monthOptions as m}
       <option value={m.value}>{m.label}</option>
     {/each}
   </select>
 
-  <label class="ml-4 text-sm text-slate-400">Year</label>
-  <select bind:value={selYear} class="rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-white">
+  <label for="year-select" class="ml-4 text-sm text-slate-400">Year</label>
+  <select id="year-select" bind:value={selYear} class="rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-white">
     {#each yearsFromData as y}
       <option value={y}>{y}</option>
     {/each}

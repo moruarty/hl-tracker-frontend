@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
+
   // Props: entries = [{ day: Date; pnl: number }], target month & year (UTC)
   export let entries: Array<{ day: Date; pnl: number }> = [];
   export let month: number; // 1..12
@@ -8,7 +10,8 @@
 
   // --- Helpers ---
   const toEpochDay = (d: Date) => Math.floor(d.getTime() / DAY_MS);
-  const sodUTC = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const sodUTC = (d: Date) =>
+    new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 
   function startOfWeekMonUTC(d: Date) {
     const date = sodUTC(d);
@@ -25,7 +28,6 @@
     return date;
   }
 
-  const WEEKDAY_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const WEEKDAY_MON_FIRST = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
   function ordinal(n: number) {
@@ -37,7 +39,7 @@
     if (n == null) return '';
     const sign = n >= 0 ? '' : '-';
     const abs = Math.abs(n);
-    // Only switch to millions once it's truly huge
+    // Only go to “m” when it’s really huge
     if (abs >= 1_000_000_000) return `${sign}$${(abs / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 1 })}m`;
     return `${sign}$${abs.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
   }
@@ -65,11 +67,7 @@
     return `${iso}\nPnL: ${sign}${v.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
   }
 
-  // Big cell size
-  const CELL_W = 150;
-  const CELL_H = 120;
-
-  // ---------- REACTIVE DERIVED STATE (so month/year changes re-render) ----------
+  // ---------- REACTIVE DERIVED STATE ----------
   // Month window
   $: firstOfMonth = new Date(Date.UTC(year, month - 1, 1));
   $: lastOfMonth  = new Date(Date.UTC(year, month, 0));
@@ -78,7 +76,7 @@
   $: gridStart = startOfWeekMonUTC(firstOfMonth);
   $: gridEnd   = endOfWeekSunUTC(lastOfMonth);
 
-  // Map daily pnl for quick lookup (UTC day key), recompute when entries change
+  // Map daily pnl for quick lookup (UTC day key)
   $: byDay = (() => {
     const map = new Map<number, number>();
     for (const e of entries) {
@@ -122,6 +120,37 @@
     }
     return out;
   })();
+
+  // ---------- RESPONSIVE CELL SIZING (keeps your layout) ----------
+  let measureEl: HTMLDivElement | null = null;
+  let ro: ResizeObserver | null = null;
+  let contentWidth = 0;
+
+  // tweakables
+  const GAP = 8;              // gap between day columns
+  const MIN_W = 120;
+  const MAX_W = 220;
+  const ASPECT = 120 / 190;   // your original 120h / 190w ≈ 0.6316
+  const MIN_H = 90;
+  const MAX_H = 160;
+
+  // compute width from container
+  $: weeksCols = 7; // always 7 day columns
+  $: totalGaps = GAP * (weeksCols - 1);
+  $: cellW = Math.max(MIN_W, Math.min(MAX_W, Math.floor((contentWidth - totalGaps) / weeksCols)));
+  $: cellH = Math.max(MIN_H, Math.min(MAX_H, Math.round(cellW * ASPECT)));
+
+  onMount(() => {
+    if (!measureEl) return;
+    ro = new ResizeObserver(() => {
+      // subtract a hair to avoid rounding wrap issues
+      contentWidth = Math.floor(measureEl!.clientWidth) - 1;
+    });
+    ro.observe(measureEl);
+    // init
+    contentWidth = Math.floor(measureEl.clientWidth) - 1;
+  });
+  onDestroy(() => ro?.disconnect());
 </script>
 
 <div class="w-full overflow-x-auto rounded-xl border border-slate-700 bg-slate-800 p-4">
@@ -135,38 +164,44 @@
     </div>
   </div>
 
-  <!-- Column headers: Mon .. Sun with ordinal of first row dates -->
-  <div class="mb-2 grid" style={`grid-template-columns: repeat(7, ${CELL_W}px); gap: 8px;`}>
-    {#if rows.length}
-      {#each rows[0] as c, idx}
-        <div class="px-2 text-sm text-slate-300">
-          <div class="font-medium">{WEEKDAY_MON_FIRST[idx]}</div>
-          <div class="text-slate-400 text-xs">
-            {ordinal(c.date.getUTCDate())}
-          </div>
-        </div>
-      {/each}
-    {/if}
+  <!-- A measuring row to compute available width -->
+  <div bind:this={measureEl} class="w-full"></div>
+
+  <!-- Column headers: Mon .. Sun (no weekday inside cells) -->
+  <div
+    class="mb-2 grid"
+    style={`grid-template-columns: repeat(7, ${cellW}px); gap: ${GAP}px;`}
+  >
+    {#each WEEKDAY_MON_FIRST as name}
+      <div class="px-2 text-sm text-slate-300 font-medium">
+        {name}
+      </div>
+    {/each}
   </div>
 
   <!-- Weeks as rows, days as columns -->
   <div class="flex flex-col gap-2">
     {#each rows as week}
-      <div class="grid" style={`grid-template-columns: repeat(7, ${CELL_W}px); gap: 8px;`}>
-        {#each week as cell, idx}
+      <div
+        class="grid"
+        style={`grid-template-columns: repeat(7, ${cellW}px); gap: ${GAP}px;`}
+      >
+        {#each week as cell}
           <div
             class="rounded-md border border-slate-900/80"
-            style={`width:${CELL_W}px;height:${CELL_H}px;background:${cell.inMonth ? colorFor(cell.pnl, maxPos, maxNeg) : 'rgba(2,6,23,0.35)'};`}
+            style={`width:${cellW}px;height:${cellH}px;background:${cell.inMonth ? colorFor(cell.pnl, maxPos, maxNeg) : 'rgba(2,6,23,0.35)'};`}
             title={tooltip(cell.date, cell.pnl)}
           >
-            <!-- top bar: weekday (left), date (right) -->
-            <div class="flex items-center justify-between px-2 pt-2 text-xs">
-              <span class="text-slate-300">{WEEKDAY_MON_FIRST[idx]}</span>
-              <span class="text-slate-400">{ordinal(cell.date.getUTCDate())}</span>
+            <!-- top-right date only -->
+            <div class="flex items-start justify-between px-2 pt-2 text-xs">
+            <span class="text-slate-300">
+                {WEEKDAY_MON_FIRST[cell.date.getUTCDay() === 0 ? 6 : cell.date.getUTCDay() - 1]}
+            </span>
+            <span class="text-slate-200">{ordinal(cell.date.getUTCDate())}</span>
             </div>
 
-            <!-- PnL number centered -->
-            <div class="flex h-[calc(100%-1.75rem)] items-center justify-center px-2 pb-2">
+            <!-- PnL centered -->
+            <div class="flex h-[calc(100%-1.5rem)] items-center justify-center px-2 pb-2">
               {#if cell.inMonth}
                 <span class="text-white text-lg font-semibold select-none">
                   {formatMoneyFull(cell.pnl)}

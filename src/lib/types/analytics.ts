@@ -6,4 +6,6 @@ export type CalendarStats = {
   long_short_ratio: number;
   win_rate_long: number;   // 0..1
   win_rate_short: number;  // 0..1
+  avg_hold_time_long: number;
+  avg_hold_time_short: number;
 };
