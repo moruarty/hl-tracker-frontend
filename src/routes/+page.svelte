@@ -2,14 +2,17 @@
 	import { onDestroy } from 'svelte';
 	import PositionsTab from '$lib/components/PositionsTab.svelte';
 	import PortfolioTab from '$lib/components/PortfolioTab.svelte';
-  import AnalyticsTab from '$lib/components/AnalyticsTab.svelte';
-  import type { CalendarStats } from '$lib/types/analytics';
+	import AnalyticsTab from '$lib/components/AnalyticsTab.svelte';
+	import type { CalendarStats } from '$lib/types/analytics';
+	import { PUBLIC_API_BASE } from '$env/static/public';
+	const API = PUBLIC_API_BASE.replace(/\/+$/, '');
+	const url = (p: string) => `${API}${p}`;
 
 	// State for UI & Data
 	let positions: any[] = [];
 	let markPrices: Record<string, string> = {};
 	let portfolioData: any = {};
-  let calendarData: CalendarStats | null = null;
+	let calendarData: CalendarStats | null = null;
 	let lastUpdated = 0;
 	let isLoading = false;
 	let error: string | null = null;
@@ -32,7 +35,7 @@
 
 		positions = [];
 		portfolioData = {};
-    calendarData = null;
+		calendarData = null;
 
 		await refreshData(false);
 		isLoading = false;
@@ -58,23 +61,23 @@
 
 		try {
 			if (tabAtStart === 'portfolio') {
-				const res = await fetch(`http://127.0.0.1:3000/portfolio/${userAddress}`, { signal });
+				const res = await fetch(url(`/portfolio/${userAddress}`), { signal });
 				if (!res.ok) throw new Error('Portfolio request failed.');
 				const data = await res.json();
 				if (activeTab !== tabAtStart) return; // tab changed; ignore results
 				portfolioData = data;
 				lastUpdated = Date.now();
-      } else if (tabAtStart === 'analytics') {
-        const res = await fetch(`http://127.0.0.1:3000/calendar/${userAddress}`, { signal });
-       if (!res.ok) throw new Error('Calendar request failed.');
-       const data = await res.json();
-       if (activeTab !== tabAtStart) return;
-       calendarData = data;
-       lastUpdated = Date.now();
+			} else if (tabAtStart === 'analytics') {
+				const res = await fetch(url(`/calendar/${userAddress}`), { signal });
+				if (!res.ok) throw new Error('Calendar request failed.');
+				const data = await res.json();
+				if (activeTab !== tabAtStart) return;
+				calendarData = data;
+				lastUpdated = Date.now();
 			} else {
 				const [resPos, resMarks] = await Promise.all([
-					fetch(`http://127.0.0.1:3000/positions/${userAddress}`, { signal }),
-					fetch(`http://127.0.0.1:3000/mark-prices`, { signal })
+					fetch(url(`/positions/${userAddress}`), { signal }),
+					fetch(url(`/mark-prices`), { signal })
 				]);
 				if (!resPos.ok || !resMarks.ok) throw new Error('An API request failed.');
 				const [posData, marksData] = await Promise.all([resPos.json(), resMarks.json()]);
@@ -89,8 +92,8 @@
 			error = e?.message ?? 'Unknown error';
 			if (tabAtStart === 'portfolio') {
 				portfolioData = {};
-      } else if (tabAtStart === 'analytics') {
-        calendarData = null;
+			} else if (tabAtStart === 'analytics') {
+				calendarData = null;
 			} else {
 				positions = [];
 				markPrices = {};
@@ -106,7 +109,7 @@
 		positions = positions;
 		markPrices = markPrices;
 		portfolioData = portfolioData;
-    calendarData = calendarData;
+		calendarData = calendarData;
 	}
 
 	function startAutoRefresh() {
@@ -215,13 +218,14 @@
 				class:text-black={activeTab === 'portfolio'}
 				class:text-gray-400={activeTab !== 'portfolio'}>Portfolio</button
 			>
-      <button
-        on:click={() => handleTabChange('analytics')}
-        class="border-b-2 px-6 py-3 text-lg transition-colors"
-        class:border-sky-500={activeTab === 'analytics'}
-        class:border-transparent={activeTab !== 'analytics'}
-        class:text-black={activeTab === 'analytics'}
-        class:text-gray-400={activeTab !== 'analytics'}>Analytics</button>
+			<button
+				on:click={() => handleTabChange('analytics')}
+				class="border-b-2 px-6 py-3 text-lg transition-colors"
+				class:border-sky-500={activeTab === 'analytics'}
+				class:border-transparent={activeTab !== 'analytics'}
+				class:text-black={activeTab === 'analytics'}
+				class:text-gray-400={activeTab !== 'analytics'}>Analytics</button
+			>
 		</div>
 	</div>
 
@@ -240,9 +244,9 @@
 				<PortfolioTab {portfolioData} {lastUpdated} />
 			{/if}
 
-      {#if activeTab === 'analytics'}
-        <AnalyticsTab calendarData={calendarData} />
-      {/if}
+			{#if activeTab === 'analytics'}
+				<AnalyticsTab {calendarData} />
+			{/if}
 		{/if}
 	</div>
 </main>

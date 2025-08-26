@@ -64,7 +64,7 @@
 			</p>
 
 			<!-- 🔁 This line now shows PNL (not account value delta) -->
-			 <h3 class="text-lg text-gray-300">Account PNL</h3>
+			<h3 class="text-lg text-gray-300">Account PNL</h3>
 			<p
 				class="text-lg font-semibold"
 				class:text-green-400={portfolioStats.pnl >= 0}
