@@ -34,20 +34,20 @@
 						</td>
 						<td class="p-4">{Math.abs(parseFloat(p.szi)).toFixed(4)}</td>
 						<td class="p-4">${parseFloat(p.positionValue).toLocaleString()}</td>
-						<td class="p-4">${parseFloat(p.entryPx).toFixed(2)}</td>
+						<td class="p-4">${parseFloat(p.entryPx).toFixed(5)}</td>
 						<td class="p-4 font-mono">
-							${markPrices[p.coin] ? parseFloat(markPrices[p.coin]).toFixed(2) : 'N/A'}
+							${markPrices[p.coin] ? parseFloat(markPrices[p.coin]).toFixed(5) : 'N/A'}
 						</td>
-						<td class="p-4">${parseFloat(p.liquidationPx).toFixed(2)}</td>
-						<td class="p-4">${parseFloat(p.marginUsed).toFixed(2)} ({p.leverage.type})</td>
+						<td class="p-4">${parseFloat(p.liquidationPx).toFixed(5)}</td>
+						<td class="p-4">${parseFloat(p.marginUsed).toFixed(5)} ({p.leverage.type})</td>
 						<td
 							class="p-4 font-mono"
 							class:text-green-600={parseFloat(p.unrealizedPnl) >= 0}
 							class:text-red-600={parseFloat(p.unrealizedPnl) < 0}
 						>
-							${parseFloat(p.unrealizedPnl).toFixed(2)}
+							${parseFloat(p.unrealizedPnl).toFixed(5)}
 							<span class="text-sm text-slate-500"
-								>({(parseFloat(p.returnOnEquity) * 100).toFixed(2)}%)</span
+								>({(parseFloat(p.returnOnEquity) * 100).toFixed(5)}%)</span
 							>
 						</td>
 						<td
